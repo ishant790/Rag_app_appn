@@ -1,30 +1,22 @@
-# services/upload.py
-
 import os
 from fastapi import APIRouter, UploadFile, File
 from uuid import uuid4
+from services import state  # Shared state
 
 router = APIRouter()
-UPLOAD_DIR = "uploads"
-
-# Ensure the uploads directory exists
-os.makedirs(UPLOAD_DIR, exist_ok=True)
-
-# This global variable will track the latest uploaded file
-latest_uploaded_path = None
 
 @router.post("/upload")
 async def upload_file(file: UploadFile = File(...)):
-    global latest_uploaded_path
+    upload_dir = "uploads"
+    os.makedirs(upload_dir, exist_ok=True)
 
     filename = f"{uuid4()}_{file.filename}"
-    file_path = os.path.join(UPLOAD_DIR, filename)
+    file_path = os.path.join(upload_dir, filename)
 
     with open(file_path, "wb") as buffer:
         buffer.write(await file.read())
 
-    latest_uploaded_path = file_path
-
+    state.latest_uploaded_path = file_path  # Save to shared state
     return {
         "message": f"File '{file.filename}' uploaded successfully.",
         "stored_as": filename,
