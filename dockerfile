@@ -1,17 +1,18 @@
+# Use the official Python base image
 FROM python:3.11-slim
 
-# I have Setup the working directory
+# Set the working directory
 WORKDIR /app
 
-# i have Copied all project files into the container
+# Copy all project files into the container
 COPY . /app
 
-# Upgraded pip and installed the dependencies
+# Upgrade pip and install dependencies
 RUN pip install --upgrade pip \
     && pip install -r requirements.txt
 
-#i have  Exposed the port to my FastAPI app will run on
+# Expose the port your FastAPI app will run on
 EXPOSE 8000
 
-# Started the FastAPI app using Uvicorn
+# Start the FastAPI app using Uvicorn
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
