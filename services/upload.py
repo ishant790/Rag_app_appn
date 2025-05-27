@@ -1,24 +1,16 @@
 import os
-from fastapi import APIRouter, UploadFile, File
 from uuid import uuid4
-from services import state  # Shared state
+from fastapi import APIRouter, Request, UploadFile, File
 
 router = APIRouter()
+UPLOAD_DIR = "uploads"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 @router.post("/upload")
-async def upload_file(file: UploadFile = File(...)):
-    upload_dir = "uploads"
-    os.makedirs(upload_dir, exist_ok=True)
-
+async def upload_pdf(request: Request, file: UploadFile = File(...)):
     filename = f"{uuid4()}_{file.filename}"
-    file_path = os.path.join(upload_dir, filename)
-
+    file_path = os.path.join(UPLOAD_DIR, filename)
     with open(file_path, "wb") as buffer:
         buffer.write(await file.read())
-
-    state.latest_uploaded_path = file_path  # Save to shared state
-    return {
-        "message": f"File '{file.filename}' uploaded successfully.",
-        "stored_as": filename,
-        "path": file_path
-    }
+    request.session.setdefault("pdfs", {})[filename] = file_path
+    return {"message": f"Uploaded {file.filename}", "stored_as": filename}
