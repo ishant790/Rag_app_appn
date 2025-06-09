@@ -1,13 +1,14 @@
 from fastapi import FastAPI
-from starlette.middleware.sessions import SessionMiddleware 
+from starlette.middleware.sessions import SessionMiddleware
 
-from services.upload import router as upload_router
-from services.chat import router as chat_router
-from services.session_routes import router as session_router
+from routes.auth_routes import router as auth_router
+from routes.chat_routes import router as chat_router
+from routes.upload_routes import router as upload_router
 
 app = FastAPI()
-app.add_middleware(SessionMiddleware, secret_key="super-secret-key")
 
-app.include_router(upload_router)
-app.include_router(chat_router)
-app.include_router(session_router)
+app.add_middleware(SessionMiddleware, secret_key="SESSION_SECRET_KEY")
+
+app.include_router(auth_router, prefix="/auth", tags=["Authentication"])
+app.include_router(chat_router, prefix="/chat", tags=["Chat"])
+app.include_router(upload_router, prefix="/upload", tags=["Upload"])

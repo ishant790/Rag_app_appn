@@ -1,7 +1,2 @@
-# services/state.py
-
-# Stores minimal session info 
-session_store = {}
-
-# Store complex chain objects here keyed by chat_id
-qa_chains_store = {}
+qa_chains_store = {}  # key: chat_id, value: QA chain
+session_store = {}     # key: username, value: session metadata
