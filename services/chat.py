@@ -1,54 +1,57 @@
-from fastapi import APIRouter, Request, Form, Query
+from fastapi import HTTPException
 from services.loader import load_documents
 from services.retriever import create_retrieval_components
 from services.qa_chain import create_qa_chain
-from config import get_config
-from services.state import qa_chains_store  # import global chain store for question answer chain
+from services.state import qa_chains_store
+from services.db import save_message_to_db, get_chat_history_from_db, chat_exists_in_db
+from config.config import settings
+import os
 
-router = APIRouter()
+UPLOAD_DIR = "uploads"
 
-@router.post("/start_chat")
-async def start_chat(request: Request, pdf_name: str = Form(...), api_key: str = Form(...), chat_id: str = Form(...)):
-    config = get_config()
-    pdf_path = request.session.get("pdfs", {}).get(pdf_name)
-    if not pdf_path:
-        return {"error": "PDF not found in session."}
+async def start_chat_service(request, username: str):
+    from schema.chat import StartChatRequest
+    pdf_path = os.path.join(UPLOAD_DIR, request.pdf_name)
+    
+    if not os.path.exists(pdf_path):
+        raise HTTPException(status_code=404, detail="PDF file not found.")
+    
+    # Rehydrate QA chain if server restarted
+    if request.chat_id in qa_chains_store:
+        return {"message": f"Chat session '{request.chat_id}' already active."}
 
-    docs = load_documents(pdf_path, config["user_agent"])
-    retriever = create_retrieval_components(docs, config["google_api_key"])
-    qa_chain = create_qa_chain(api_key, retriever)
+    if await chat_exists_in_db(request.chat_id, username):
+        docs = load_documents(pdf_path, settings.USER_AGENT)
+        retriever = create_retrieval_components(docs, settings.GOOGLE_API_KEY)
+        qa_chain = create_qa_chain(request.api_key, retriever)
+        qa_chains_store[request.chat_id] = qa_chain
+        return {"message": f"Chat session '{request.chat_id}' resumed."}
 
-    # Save chain object in global store only
-    qa_chains_store[chat_id] = qa_chain
+    # Fresh session
+    docs = load_documents(pdf_path, settings.USER_AGENT)
+    retriever = create_retrieval_components(docs, settings.GOOGLE_API_KEY)
+    qa_chain = create_qa_chain(request.api_key, retriever)
+    qa_chains_store[request.chat_id] = qa_chain
 
-    # Storing minimal data in session
-    request.session.setdefault("chats", {})[chat_id] = {
-        "pdf": pdf_name,
-        "api_key": api_key,
-        "messages": []
-    }
-    return {"message": f"Chat '{chat_id}' started."}
+    return {"message": f"Chat session '{request.chat_id}' started."}
 
-@router.post("/chat")
-async def chat(request: Request, chat_id: str = Form(...), question: str = Form(...)):
-    chats = request.session.get("chats", {})
-    chat_data = chats.get(chat_id)
-    if not chat_data:
-        return {"error": "Chat session not found."}
 
-    qa_chain = qa_chains_store.get(chat_id)
+async def chat_service(request, username: str):
+    qa_chain = qa_chains_store.get(request.chat_id)
     if not qa_chain:
-        return {"error": "QA chain not found for this chat."}
+        raise HTTPException(status_code=404, detail="QA chain not found")
 
-    response = qa_chain.invoke({"input": question})
-    chat_data["messages"].append({"question": question, "answer": response['answer']})
+    history_records = await get_chat_history_from_db(request.chat_id, username)
+    history_text = "\n".join(
+        [f"User: {h['question']}\nAssistant: {h['answer']}" for h in history_records]
+    )
 
-    return {"chat_id": chat_id, "answer": response['answer'], "history": chat_data["messages"]}
+    response = qa_chain.invoke({
+        "input": request.question,
+        "context": history_text
+    })
 
-@router.get("/chat_history")
-async def get_chat_history(request: Request, chat_id: str = Query(...)):
-    chats = request.session.get("chats", {})
-    chat_data = chats.get(chat_id)
-    if not chat_data:
-        return {"error": "Chat session not found."}
-    return {"chat_id": chat_id, "history": chat_data.get("messages", [])}
+    answer = response["answer"]
+    await save_message_to_db(request.chat_id, username, request.question, answer)
+
+    return {"question": request.question, "answer": answer}
